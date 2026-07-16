@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { examQuestions, sectionMeta, type ExamQuestion, type ExamSection } from "./exam-data";
 
 type Lesson = {
   id: string;
@@ -345,7 +346,7 @@ const STORAGE_KEY = "boki-manga-quest-v1";
 const SETTLEMENT_STORAGE_KEY = "boki-settlement-quest-v1";
 const INTERMEDIATE_STORAGE_KEY = "boki-intermediate-quest-v1";
 
-type Course = "home" | "beginner" | "intermediate" | "advanced";
+type Course = "home" | "beginner" | "intermediate" | "advanced" | "exam";
 
 export default function Home() {
   const [course, setCourse] = useState<Course>("home");
@@ -477,6 +478,7 @@ export default function Home() {
           <button className={course === "beginner" ? "active" : ""} onClick={() => openCourse("beginner")}>初級</button>
           <button className={course === "intermediate" ? "active" : ""} onClick={() => openCourse("intermediate")}>中級</button>
           <button className={course === "advanced" ? "active" : ""} onClick={() => openCourse("advanced")}>上級</button>
+          <button className={course === "exam" ? "active exam-tab" : "exam-tab"} onClick={() => openCourse("exam")}>演習</button>
         </nav>
         {course === "beginner" && <div className="header-progress" aria-label={`初級の学習進捗 ${progress}%`}>
           <span>{completed.length}/7 CLEAR</span>
@@ -663,6 +665,7 @@ export default function Home() {
 
       {course === "intermediate" && <IntermediateCourse onNext={() => openCourse("advanced")} />}
       {course === "advanced" && <SettlementCourse />}
+      {course === "exam" && <ExamCourse />}
 
       <footer>
         <p><b>ボキコミ！</b> 漫画でわかる簿記3級</p>
@@ -720,6 +723,21 @@ function CourseHome({ openCourse, beginnerProgress, bestScore }: { openCourse: (
             <button onClick={() => openCourse("advanced")}>上級を始める<span>→</span></button>
           </article>
         </div>
+        <article className="exam-launch-card">
+          <div className="exam-launch-copy">
+            <span className="level-badge">NEW｜スマホ完結</span>
+            <p>EXAM PRACTICE</p>
+            <h3>本試験形式の問題を、<br /><em>何度でも。</em></h3>
+            <p>仕訳・帳簿・決算の全45問から出題。60分模試、分野別演習、見直し、誤答復習までひとつの画面で完結します。</p>
+          </div>
+          <div className="exam-launch-stats" aria-label="演習モードの内容">
+            <div><b>45</b><span>QUESTIONS</span></div>
+            <div><b>60</b><span>MINUTES</span></div>
+            <div><b>70</b><span>% TO PASS</span></div>
+          </div>
+          <button onClick={() => openCourse("exam")}>過去問スタイル演習へ<span>→</span></button>
+          <small>※日本商工会議所の問題転載ではなく、出題形式に合わせたオリジナル問題です。</small>
+        </article>
       </section>
     </div>
   );
@@ -995,6 +1013,240 @@ function SettlementCourse() {
       </article>
 
       <button className="settlement-reset" onClick={reset}>決算攻略編の進捗をリセット</button>
+    </section>
+  );
+}
+
+type ExamView = "menu" | "session" | "result";
+type ExamKind = "mock" | "quick" | "section1" | "section2" | "section3" | "mistakes";
+type ExamAnswers = Record<string, number>;
+
+const EXAM_STORAGE_KEY = "boki-exam-practice-v1";
+
+function shuffleQuestions(items: ExamQuestion[]) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[target]] = [copy[target], copy[index]];
+  }
+  return copy;
+}
+
+function formatTime(totalSeconds: number) {
+  const safe = Math.max(0, totalSeconds);
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function ExamCourse() {
+  const [view, setView] = useState<ExamView>("menu");
+  const [kind, setKind] = useState<ExamKind>("quick");
+  const [sessionIds, setSessionIds] = useState<string[]>([]);
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState<ExamAnswers>({});
+  const [marked, setMarked] = useState<string[]>([]);
+  const [mistakeIds, setMistakeIds] = useState<string[]>([]);
+  const [bestScore, setBestScore] = useState(0);
+  const [endAt, setEndAt] = useState<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
+
+  const session = useMemo(
+    () => sessionIds.map((id) => examQuestions.find((item) => item.id === id)).filter((item): item is ExamQuestion => Boolean(item)),
+    [sessionIds],
+  );
+  const question = session[current];
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      try {
+        const saved = JSON.parse(localStorage.getItem(EXAM_STORAGE_KEY) ?? "null");
+        if (saved) {
+          const validIds = Array.isArray(saved.sessionIds) ? saved.sessionIds.filter((id: string) => examQuestions.some((item) => item.id === id)) : [];
+          setMistakeIds(Array.isArray(saved.mistakeIds) ? saved.mistakeIds : []);
+          setBestScore(Number(saved.bestScore) || 0);
+          if (saved.view === "session" && validIds.length) {
+            setView("session"); setKind(saved.kind || "quick"); setSessionIds(validIds);
+            setCurrent(Math.min(Number(saved.current) || 0, validIds.length - 1));
+            setAnswers(saved.answers && typeof saved.answers === "object" ? saved.answers : {});
+            setMarked(Array.isArray(saved.marked) ? saved.marked : []);
+            setEndAt(Number(saved.endAt) || null);
+          }
+        }
+      } catch { /* Storage is an enhancement; the question bank remains usable without it. */ }
+      setHydrated(true);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(EXAM_STORAGE_KEY, JSON.stringify({ view, kind, sessionIds, current, answers, marked, mistakeIds, bestScore, endAt }));
+  }, [view, kind, sessionIds, current, answers, marked, mistakeIds, bestScore, endAt, hydrated]);
+
+  useEffect(() => {
+    if (view !== "session" || !endAt) return;
+    const update = () => {
+      const next = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setSecondsLeft(next);
+      if (next === 0) setView("result");
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [view, endAt]);
+
+  const score = useMemo(() => {
+    if (!session.length) return 0;
+    const correct = session.filter((item) => answers[item.id] === item.correct).length;
+    return Math.round((correct / session.length) * 100);
+  }, [session, answers]);
+
+  const correctCount = session.filter((item) => answers[item.id] === item.correct).length;
+  const answeredCount = session.filter((item) => answers[item.id] !== undefined).length;
+
+  function startSession(nextKind: ExamKind) {
+    let selected: ExamQuestion[] = [];
+    let limitSeconds: number | null = null;
+    if (nextKind === "mock") {
+      selected = [
+        ...shuffleQuestions(examQuestions.filter((item) => item.section === 1)).slice(0, 12),
+        ...shuffleQuestions(examQuestions.filter((item) => item.section === 2)).slice(0, 5),
+        ...shuffleQuestions(examQuestions.filter((item) => item.section === 3)).slice(0, 5),
+      ];
+      limitSeconds = 60 * 60;
+    } else if (nextKind === "quick") {
+      selected = shuffleQuestions(examQuestions).slice(0, 10);
+      limitSeconds = 15 * 60;
+    } else if (nextKind === "mistakes") {
+      selected = mistakeIds.map((id) => examQuestions.find((item) => item.id === id)).filter((item): item is ExamQuestion => Boolean(item));
+    } else {
+      const section = Number(nextKind.at(-1)) as ExamSection;
+      selected = shuffleQuestions(examQuestions.filter((item) => item.section === section));
+    }
+    if (!selected.length) return;
+    setKind(nextKind); setSessionIds(selected.map((item) => item.id)); setCurrent(0);
+    setAnswers({}); setMarked([]); setEndAt(limitSeconds ? Date.now() + limitSeconds * 1000 : null);
+    setSecondsLeft(limitSeconds ?? 0); setView("session");
+    requestAnimationFrame(() => document.getElementById("exam-top")?.scrollIntoView({ behavior: "smooth" }));
+  }
+
+  function submitSession() {
+    const wrong = session.filter((item) => answers[item.id] !== item.correct).map((item) => item.id);
+    setMistakeIds((old) => Array.from(new Set([...old.filter((id) => !sessionIds.includes(id)), ...wrong])));
+    setBestScore((old) => Math.max(old, score));
+    setEndAt(null);
+    setView("result");
+    requestAnimationFrame(() => document.getElementById("exam-top")?.scrollIntoView({ behavior: "smooth" }));
+  }
+
+  function clearHistory() {
+    localStorage.removeItem(EXAM_STORAGE_KEY);
+    setView("menu"); setSessionIds([]); setAnswers({}); setMarked([]); setMistakeIds([]); setBestScore(0); setEndAt(null);
+  }
+
+  if (view === "menu") {
+    return (
+      <section id="exam-top" className="exam-course">
+        <div className="exam-hero">
+          <div>
+            <p><span>本試験形式</span> MOBILE EXAM LAB</p>
+            <h1>スマホが、<br /><em>試験会場</em>になる。</h1>
+            <p className="exam-lead">全45問から毎回ランダム出題。解答・見直し・採点・誤答復習まで、この画面だけで完結。</p>
+          </div>
+          <div className="exam-score-board">
+            <span>YOUR RECORD</span><b>{bestScore}</b><em>/ 100</em><small>{bestScore >= 70 ? "合格圏に到達" : "70点で合格圏"}</small>
+          </div>
+        </div>
+
+        <div className="exam-bank-summary">
+          <div><b>45</b><span>オリジナル問題</span></div>
+          <div><b>3</b><span>出題分野</span></div>
+          <div><b>{mistakeIds.length}</b><span>復習待ち</span></div>
+          <p>試験仕様：商業簿記・3題以内・60分・70%以上</p>
+        </div>
+
+        <div className="exam-mode-grid">
+          <article className="mock-mode-card">
+            <span>RECOMMENDED</span><h2>60分 総合模試</h2>
+            <p>第1問から第3問まで22問を出題。時間切れで自動採点します。</p>
+            <ul><li>カウントダウン</li><li>見直しマーク</li><li>中断しても自動保存</li></ul>
+            <button onClick={() => startSession("mock")}>模試を開始する<span>→</span></button>
+          </article>
+          <article><span>15 MIN</span><h2>10問クイック</h2><p>すきま時間に全分野からランダム出題。</p><button onClick={() => startSession("quick")}>10問解く<span>→</span></button></article>
+          <article><span>24 QUESTIONS</span><h2>第1問｜仕訳</h2><p>勘定科目と借方・貸方を反射的に選ぶ。</p><button onClick={() => startSession("section1")}>仕訳を特訓<span>→</span></button></article>
+          <article><span>10 QUESTIONS</span><h2>第2問｜帳簿</h2><p>補助簿・伝票・勘定記入を集中攻略。</p><button onClick={() => startSession("section2")}>帳簿を特訓<span>→</span></button></article>
+          <article><span>11 QUESTIONS</span><h2>第3問｜決算</h2><p>整理仕訳・精算表・利益計算を反復。</p><button onClick={() => startSession("section3")}>決算を特訓<span>→</span></button></article>
+          <article className={mistakeIds.length ? "mistake-mode-card" : "mistake-mode-card disabled"}><span>{mistakeIds.length} TO REVIEW</span><h2>まちがいだけ</h2><p>過去の誤答を正解するまで解き直す。</p><button disabled={!mistakeIds.length} onClick={() => startSession("mistakes")}>復習を始める<span>↻</span></button></article>
+        </div>
+        <div className="exam-notice"><b>問題について</b><p>日本商工会議所の過去問・サンプル問題の転載ではありません。現行の出題範囲と試験形式を参考に作成した、学習用オリジナル問題です。</p></div>
+        <button className="exam-clear" onClick={clearHistory}>演習履歴をリセット</button>
+      </section>
+    );
+  }
+
+  if (view === "result") {
+    const sectionResults = ([1, 2, 3] as ExamSection[]).map((section) => {
+      const items = session.filter((item) => item.section === section);
+      const correct = items.filter((item) => answers[item.id] === item.correct).length;
+      return { section, total: items.length, correct };
+    }).filter((item) => item.total > 0);
+    return (
+      <section id="exam-top" className="exam-course exam-result-page">
+        <div className={`exam-result-score ${score >= 70 ? "pass" : "retry"}`}>
+          <span>{score >= 70 ? "合格圏" : "あと一歩"}</span><h1>{score}<small>/100</small></h1>
+          <p>{correctCount}問正解 ／ {session.length}問中</p>
+          <b>{score >= 70 ? "この調子。本番でも時間配分を崩さずに。" : "誤答だけを解き直せば、次の伸びが速い。"}</b>
+        </div>
+        <div className="exam-section-results">
+          {sectionResults.map((item) => <div key={item.section}><span>{sectionMeta[item.section].label}</span><b>{item.correct}<small>/{item.total}</small></b><i><em style={{ width: `${Math.round((item.correct / item.total) * 100)}%` }} /></i></div>)}
+        </div>
+        <div className="exam-result-actions">
+          <button className="primary-cta" disabled={!mistakeIds.length} onClick={() => startSession("mistakes")}>まちがいだけ解き直す<span>↻</span></button>
+          <button className="secondary-cta secondary-button" onClick={() => setView("menu")}>演習メニューへ</button>
+        </div>
+        <div className="exam-review-list">
+          <div className="exam-review-heading"><span>ANSWER REVIEW</span><h2>解答と解説</h2></div>
+          {session.map((item, index) => {
+            const picked = answers[item.id]; const isCorrect = picked === item.correct;
+            return <details key={item.id} open={!isCorrect}><summary><span className={isCorrect ? "ok" : "ng"}>{isCorrect ? "○" : "×"}</span><small>{sectionMeta[item.section].label}｜{item.topic}</small><b>{index + 1}. {item.prompt}</b></summary><div><p>あなたの解答：{picked === undefined ? "未解答" : item.choices[picked]}</p><p>正解：<strong>{item.choices[item.correct]}</strong></p><em>{item.explanation}</em></div></details>;
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  if (!question) return null;
+  const meta = sectionMeta[question.section];
+  return (
+    <section id="exam-top" className="exam-session">
+      <header className="exam-session-bar">
+        <button onClick={() => setView("menu")} aria-label="演習を中断してメニューへ">×</button>
+        <div><span>{kind === "mock" ? "60分 総合模試" : kind === "quick" ? "10問クイック" : "分野別演習"}</span><b>{answeredCount}/{session.length} 回答済み</b></div>
+        {endAt ? <time className={secondsLeft < 300 ? "danger" : ""}>{formatTime(secondsLeft)}</time> : <time>∞</time>}
+      </header>
+
+      <div className="exam-session-body">
+        <nav className="exam-question-nav" aria-label="問題一覧">
+          {session.map((item, index) => <button key={item.id} className={`${index === current ? "active" : ""} ${answers[item.id] !== undefined ? "answered" : ""} ${marked.includes(item.id) ? "marked" : ""}`} onClick={() => setCurrent(index)} aria-label={`問題${index + 1}${answers[item.id] !== undefined ? " 回答済み" : ""}${marked.includes(item.id) ? " 見直し" : ""}`}>{index + 1}</button>)}
+        </nav>
+
+        <article className="exam-question-card">
+          <div className="exam-question-meta"><span style={{ background: meta.color }}>{meta.label}</span><b>{meta.title}｜{question.topic}</b><em>Q {current + 1} / {session.length}</em></div>
+          <h1>{question.prompt}</h1>
+          <div className="exam-choice-list">
+            {question.choices.map((choice, index) => <button key={choice} className={answers[question.id] === index ? "selected" : ""} onClick={() => setAnswers((old) => ({ ...old, [question.id]: index }))}><span>{String.fromCharCode(65 + index)}</span><b>{choice}</b></button>)}
+          </div>
+          <button className={`review-mark ${marked.includes(question.id) ? "active" : ""}`} onClick={() => setMarked((old) => old.includes(question.id) ? old.filter((id) => id !== question.id) : [...old, question.id])}>{marked.includes(question.id) ? "★ 見直しリストに追加済み" : "☆ あとで見直す"}</button>
+        </article>
+
+        <div className="exam-mobile-actions">
+          <button disabled={current === 0} onClick={() => setCurrent((value) => Math.max(0, value - 1))}>← 前へ</button>
+          {current < session.length - 1 ? <button className="next" onClick={() => setCurrent((value) => Math.min(session.length - 1, value + 1))}>次へ →</button> : <button className="submit" onClick={submitSession}>採点する</button>}
+        </div>
+        <div className="exam-submit-row"><p>未回答 <b>{session.length - answeredCount}</b>問 ／ 見直し <b>{marked.length}</b>問</p><button onClick={submitSession}>答案を提出して採点</button></div>
+      </div>
     </section>
   );
 }
