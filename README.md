@@ -4,7 +4,8 @@
 
 ## 公開サイト
 
-[ボキコミ！を開く](https://boki-manga-quest.eager-deer-7173.chatgpt.site)
+- [GitHub Pages版](https://ma-nakaya.github.io/boki-comi/)
+- [ChatGPT Sites版](https://boki-manga-quest.eager-deer-7173.chatgpt.site)
 
 ## 学習コース
 
@@ -19,12 +20,7 @@
 
 ## 技術構成
 
-- React 19
-- Next.js 16
-- TypeScript
-- Vinext / Vite
-- Cloudflare Workers
-- ChatGPT Sites
+React 19 / Next.js 16 / TypeScript / Vinext / Vite / Cloudflare Workers / GitHub Pages
 
 ## 開発
 
@@ -40,10 +36,7 @@ npm run dev
 ```bash
 npm run lint
 npm test
+npm run build:pages
 ```
 
-## ビルド
-
-```bash
-npm run build
-```
+`main` ブランチへプッシュすると、GitHub ActionsがGitHub Pages版を自動更新します。
