@@ -4,8 +4,7 @@
 
 ## 公開サイト
 
-- [GitHub Pages版](https://ma-nakaya.github.io/boki-comi/)
-- [ChatGPT Sites版](https://boki-manga-quest.eager-deer-7173.chatgpt.site)
+[GitHub Pages版を開く](https://ma-nakaya.github.io/boki-comi/)
 
 ## 学習コース
 
