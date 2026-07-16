@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const basePath = process.env.GITHUB_PAGES === "true" ? "/boki-comi" : "";
+const basePath = process.env.GITHUB_PAGES === "true" ? "/boki-learning-app" : "";
 
 export const metadata: Metadata = {
   title: "ボキコミ！｜マンガでわかる簿記3級",

@@ -4,7 +4,7 @@
 
 ## 公開サイト
 
-[GitHub Pages版を開く](https://ma-nakaya.github.io/boki-comi/)
+[GitHub Pages版を開く](https://ma-nakaya.github.io/boki-learning-app/)
 
 ## 学習コース
 

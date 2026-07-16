@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   ...(isGitHubPages
     ? {
         output: "export" as const,
-        basePath: "/boki-comi",
+        basePath: "/boki-learning-app",
         trailingSlash: true,
         images: { unoptimized: true },
         typescript: { tsconfigPath: "tsconfig.pages.json" },
