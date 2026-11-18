@@ -1032,6 +1032,35 @@ function shuffleQuestions(items: ExamQuestion[]) {
   return copy;
 }
 
+// A choice order maps each display position to the index of the original
+// choice shown there: order[displayIndex] = originalChoiceIndex.
+function shuffledChoiceOrder(length: number) {
+  const order = Array.from({ length }, (_, index) => index);
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [order[index], order[target]] = [order[target], order[index]];
+  }
+  return order;
+}
+
+function isValidChoiceOrder(order: unknown, length: number): order is number[] {
+  return (
+    Array.isArray(order) &&
+    order.length === length &&
+    order.every((value) => Number.isInteger(value) && value >= 0 && value < length) &&
+    new Set(order).size === length
+  );
+}
+
+function applyChoiceOrder(question: ExamQuestion, order: number[]): ExamQuestion {
+  if (!isValidChoiceOrder(order, question.choices.length)) return question;
+  return {
+    ...question,
+    choices: order.map((sourceIndex) => question.choices[sourceIndex]),
+    correct: order.indexOf(question.correct),
+  };
+}
+
 function formatTime(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds);
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
@@ -1041,6 +1070,7 @@ function ExamCourse() {
   const [view, setView] = useState<ExamView>("menu");
   const [kind, setKind] = useState<ExamKind>("quick");
   const [sessionIds, setSessionIds] = useState<string[]>([]);
+  const [choiceOrders, setChoiceOrders] = useState<Record<string, number[]>>({});
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<ExamAnswers>({});
   const [marked, setMarked] = useState<string[]>([]);
@@ -1051,8 +1081,14 @@ function ExamCourse() {
   const [hydrated, setHydrated] = useState(false);
 
   const session = useMemo(
-    () => sessionIds.map((id) => examQuestions.find((item) => item.id === id)).filter((item): item is ExamQuestion => Boolean(item)),
-    [sessionIds],
+    () => sessionIds
+      .map((id) => examQuestions.find((item) => item.id === id))
+      .filter((item): item is ExamQuestion => Boolean(item))
+      .map((item) => {
+        const order = choiceOrders[item.id];
+        return order ? applyChoiceOrder(item, order) : item;
+      }),
+    [sessionIds, choiceOrders],
   );
   const question = session[current];
 
@@ -1072,6 +1108,18 @@ function ExamCourse() {
             setAnswers(saved.answers && typeof saved.answers === "object" ? saved.answers : {});
             setMarked(Array.isArray(saved.marked) ? saved.marked : []);
             setEndAt(Number(saved.endAt) || null);
+            // Restore the choice order each question was answered under, so a
+            // resumed session shows and scores the exact same arrangement.
+            // Saves written before choice shuffling have no entry; those
+            // questions keep their original order, matching their answers.
+            const savedOrders = saved.choiceOrders && typeof saved.choiceOrders === "object" ? saved.choiceOrders : {};
+            const restoredOrders: Record<string, number[]> = {};
+            for (const id of validIds) {
+              const original = examQuestions.find((item) => item.id === id);
+              const order = (savedOrders as Record<string, unknown>)[id];
+              if (original && isValidChoiceOrder(order, original.choices.length)) restoredOrders[id] = order;
+            }
+            setChoiceOrders(restoredOrders);
           }
         }
       } catch { /* Storage is an enhancement; the question bank remains usable without it. */ }
@@ -1082,8 +1130,8 @@ function ExamCourse() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(EXAM_STORAGE_KEY, JSON.stringify({ view, kind, sessionIds, current, answers, marked, mistakeIds, bestScore, endAt }));
-  }, [view, kind, sessionIds, current, answers, marked, mistakeIds, bestScore, endAt, hydrated]);
+    localStorage.setItem(EXAM_STORAGE_KEY, JSON.stringify({ view, kind, sessionIds, choiceOrders, current, answers, marked, mistakeIds, bestScore, endAt }));
+  }, [view, kind, sessionIds, choiceOrders, current, answers, marked, mistakeIds, bestScore, endAt, hydrated]);
 
   useEffect(() => {
     if (view !== "session" || !endAt) return;
@@ -1126,6 +1174,7 @@ function ExamCourse() {
       selected = shuffleQuestions(examQuestions.filter((item) => item.section === section));
     }
     if (!selected.length) return;
+    setChoiceOrders(Object.fromEntries(selected.map((item) => [item.id, shuffledChoiceOrder(item.choices.length)])));
     setKind(nextKind); setSessionIds(selected.map((item) => item.id)); setCurrent(0);
     setAnswers({}); setMarked([]); setEndAt(limitSeconds ? Date.now() + limitSeconds * 1000 : null);
     setSecondsLeft(limitSeconds ?? 0); setView("session");
@@ -1143,7 +1192,7 @@ function ExamCourse() {
 
   function clearHistory() {
     localStorage.removeItem(EXAM_STORAGE_KEY);
-    setView("menu"); setSessionIds([]); setAnswers({}); setMarked([]); setMistakeIds([]); setBestScore(0); setEndAt(null);
+    setView("menu"); setSessionIds([]); setChoiceOrders({}); setAnswers({}); setMarked([]); setMistakeIds([]); setBestScore(0); setEndAt(null);
   }
 
   if (view === "menu") {
